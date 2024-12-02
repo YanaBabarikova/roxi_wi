@@ -1,0 +1,43 @@
+pipeline {
+    agent any
+    stages {
+        stage('Prepare') {
+            steps {
+                script {
+                    // Проверяем, установлен ли JMeter.  Если нет - устанавливаем.
+                    def jmeterDir = "/opt/jmeter"
+                    if (!sh(returnStdout: true, script: "test -d ${jmeterDir}").trim() == '0') {
+                        sh '''
+                            apt-get update -yq && apt-get install -y openjdk-11-jre wget unzip
+                            wget https://archive.apache.org/dist/jmeter/binaries/apache-jmeter-5.6.3.tgz
+                            tar -xzf apache-jmeter-5.6.3.tgz
+                            mv apache-jmeter-5.6.3 ${jmeterDir}
+                            export PATH="$PATH:${jmeterDir}/bin"
+                            
+                            mkdir -p ${jmeterDir}/lib/ext
+                            wget https://github.com/YanaBabarikova/roxi_wi/raw/refs/heads/main/jmeter-plugins-manager-1.10.zip
+                            unzip jmeter-plugins-manager-1.10.zip -d ${jmeterDir}/lib/ext
+                        '''
+                    }
+                }
+            }
+        }
+        stage('JMeter Test') {
+            steps {
+                sh '''
+                    mkdir -p web
+                    rm -rf web/* new_logfile.log
+                    ${jmeterDir}/bin/jmeter -Jjmeter.save.saveservice.output_format=csv -Jvu=1 -Jramp_up=1 -Jloop=1 -Jserver_name="10.95.0.146" -n -t "test_itog.jmx" -l "new_logfile.log" -e -o "web"
+                '''
+            }
+            post {
+                always {
+                    archiveArtifacts artifacts: 'web/**/*, new_logfile.log'
+                }
+                failure {
+                    mail to: 'yana.babarikova@gmail.com', subject: 'JMeter Test failed!', body: 'JMeter test failed!'
+                }
+            }
+        }
+    }
+}
